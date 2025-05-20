@@ -122,6 +122,43 @@
         .image-cell img:hover {
             transform: scale(1.5);
         }
+
+        .button {
+            background-color: #3498db;
+            color: white;
+            padding: 10px 15px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: background-color 0.2s;
+        }
+
+        .button:hover {
+            background-color: #2980b9;
+        }
+
+        .checkbox-container {
+            display: inline-flex;
+            align-items: center;
+            margin-right: 20px;
+            margin-bottom: 10px;
+        }
+
+        .checkbox-container input[type="checkbox"] {
+            margin-right: 5px;
+            width: 18px;
+            height: 18px;
+        }
+
+        #export-container {
+            margin: 20px auto;
+            max-width: 1200px;
+            padding: 20px;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
     </style>
 </head>
 <body>
@@ -132,6 +169,16 @@
     <input type="file" id="file-upload" accept=".xml" required />
     <div id="file-info"></div>
     <div id="status-message"></div>
+</div>
+
+<div id="export-container" style="display: none;">
+    <h2>Экспорт данных</h2>
+    <div id="export-columns" style="margin-bottom: 15px;">
+        <p>Выберите колонки для экспорта:</p>
+        <div id="column-checkboxes" style="display: flex; flex-wrap: wrap; gap: 10px;"></div>
+    </div>
+    <button id="copy-button" class="button">Копировать для Google Таблиц</button>
+    <div id="export-status" style="margin-top: 10px;"></div>
 </div>
 
 <div id="preview-container">
@@ -152,6 +199,7 @@
 
     let colorsData = {};
     let itemTypesData = {};
+    let tableData = [];
 
     document.addEventListener('DOMContentLoaded', function() {
         Promise.all([loadColorsData(), loadItemTypesData()])
@@ -163,6 +211,7 @@
             });
 
         document.getElementById('file-upload').addEventListener('change', handleFileUpload);
+        document.getElementById('copy-button').addEventListener('click', copyTableToClipboard);
     });
 
     async function loadColorsData() {
@@ -298,6 +347,8 @@
     }
 
     function renderTable(data) {
+        tableData = data;
+
         const tableContainer = document.getElementById('table-container');
 
         const table = document.createElement('table');
@@ -361,6 +412,13 @@
 
         tableContainer.innerHTML = '';
         tableContainer.appendChild(table);
+
+        if (data.length > 0) {
+            document.getElementById('export-container').style.display = 'block';
+            createColumnCheckboxes();
+        } else {
+            document.getElementById('export-container').style.display = 'none';
+        }
     }
 
     function createColorCell(cell, colorId) {
@@ -371,14 +429,14 @@
         if (colorInfo && colorInfo.rgb) {
             cell.innerHTML = `
                     <span class="color-swatch" style="background-color: #${colorInfo.rgb};"></span>
-                    ${colorId} - ${colorInfo.name}
+                    ${colorInfo.name}
                 `;
 
             cell.title = `ID: ${colorId}, Название: ${colorInfo.name}, RGB: #${colorInfo.rgb}`;
         } else {
             cell.innerHTML = `
                     <span class="color-swatch" style="background-color: #ccc;"></span>
-                    ${colorId} - Нет данных
+                    Нет данных
                 `;
             cell.title = `ID: ${colorId}, Данные о цвете не найдены`;
         }
@@ -473,6 +531,148 @@
         summary.appendChild(countInfo);
 
         summaryContainer.appendChild(summary);
+    }
+
+    function createColumnCheckboxes() {
+        const columnCheckboxes = document.getElementById('column-checkboxes');
+        columnCheckboxes.innerHTML = '';
+
+        const indexCheckbox = document.createElement('div');
+        indexCheckbox.className = 'checkbox-container';
+        indexCheckbox.innerHTML = `
+                <input type="checkbox" id="export-index" checked>
+                <label for="export-index">#</label>
+            `;
+        columnCheckboxes.appendChild(indexCheckbox);
+
+        INVENTORY_COLUMNS.forEach(column => {
+            const checkbox = document.createElement('div');
+            checkbox.className = 'checkbox-container';
+            checkbox.innerHTML = `
+                    <input type="checkbox" id="export-${column.id}" checked>
+                    <label for="export-${column.id}">${column.name}</label>
+                `;
+            columnCheckboxes.appendChild(checkbox);
+        });
+    }
+
+    function copyTableToClipboard() {
+        if (tableData.length === 0) {
+            showExportStatus('Нет данных для экспорта', 'error');
+            return;
+        }
+
+        const selectedColumns = [];
+
+        document.getElementById('export-index').checked && selectedColumns.push('index');
+
+        INVENTORY_COLUMNS.forEach(column => {
+            if (document.getElementById(`export-${column.id}`).checked) {
+                selectedColumns.push(column.id);
+            }
+        });
+
+        if (selectedColumns.length === 0) {
+            showExportStatus('Выберите хотя бы одну колонку для экспорта', 'error');
+            return;
+        }
+
+        const headers = [];
+        if (document.getElementById('export-index').checked) {
+            headers.push('#');
+        }
+
+        INVENTORY_COLUMNS.forEach(column => {
+            if (document.getElementById(`export-${column.id}`).checked) {
+                headers.push(column.name);
+            }
+        });
+
+        let exportContent = headers.join('\t') + '\n';
+
+        tableData.forEach((row, index) => {
+            const rowData = [];
+
+            if (document.getElementById('export-index').checked) {
+                rowData.push(index + 1);
+            }
+
+            INVENTORY_COLUMNS.forEach(column => {
+                if (document.getElementById(`export-${column.id}`).checked) {
+                    if (column.virtual) {
+                        if (column.id === 'IMAGE') {
+                            let imageUrl = '';
+                            const itemType = row.ITEMTYPE;
+                            const itemId = row.ITEMID;
+                            const colorId = row.COLOR;
+
+                            if (itemType && itemId) {
+                                switch (itemType) {
+                                    case 'P': // Деталь
+                                        imageUrl = `https://img.bricklink.com/ItemImage/PN/${colorId || '0'}/${itemId}.png`;
+                                        break;
+                                    case 'M': // Минифигурка
+                                        imageUrl = `https://img.bricklink.com/ItemImage/MN/0/${itemId}.png`;
+                                        break;
+                                    case 'S': // Набор
+                                        imageUrl = `https://img.bricklink.com/ItemImage/SN/0/${itemId}.png`;
+                                        break;
+                                    default:
+                                        imageUrl = `https://img.bricklink.com/ItemImage/XX/0/${itemId}.png`;
+                                }
+                                rowData.push(`=image("${imageUrl}")`);
+                            } else {
+                                rowData.push('');
+                            }
+                        }
+                    } else {
+                        let value = row[column.id] || '';
+
+                        if (column.id === 'ITEMTYPE' && itemTypesData[value]) {
+                            value = itemTypesData[value];
+                        } else if (column.id === 'COLOR' && colorsData[value]) {
+                            value = colorsData[value].name;
+                        }
+
+                        if (value === '(пусто)') {
+                            value = '';
+                        }
+
+                        rowData.push(value);
+                    }
+                }
+            });
+
+            exportContent += rowData.join('\t') + '\n';
+        });
+
+        copyTextToClipboard(exportContent);
+
+        showExportStatus('Данные скопированы в буфер обмена!', 'success');
+    }
+
+    function copyTextToClipboard(text) {
+        const textarea = document.createElement('textarea');
+        textarea.value = text;
+        textarea.style.position = 'fixed';
+        textarea.style.opacity = 0;
+        document.body.appendChild(textarea);
+
+        textarea.select();
+        try {
+            document.execCommand('copy');
+            console.log('Данные скопированы в буфер обмена');
+        } catch (err) {
+            console.error('Ошибка при копировании в буфер обмена:', err);
+        }
+
+        document.body.removeChild(textarea);
+    }
+
+    function showExportStatus(message, type) {
+        const statusElement = document.getElementById('export-status');
+        statusElement.textContent = message;
+        statusElement.className = type;
     }
 
     function showMessage(message, type) {
