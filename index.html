@@ -1,0 +1,495 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Просмотрщик инвентаря XML</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f7f7f7;
+        }
+
+        h1 {
+            color: #2c3e50;
+            text-align: center;
+        }
+
+        #upload-container {
+            margin: 20px auto;
+            max-width: 800px;
+            padding: 20px;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+
+        #file-upload {
+            width: 100%;
+            padding: 10px;
+            margin-bottom: 10px;
+            border: 1px dashed #3498db;
+            border-radius: 4px;
+            background: #f9f9f9;
+        }
+
+        #preview-container {
+            margin: 20px auto;
+            max-width: 1200px;
+            overflow-x: auto;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+            background: white;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+
+        th, td {
+            padding: 12px 15px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+            vertical-align: middle;
+        }
+
+        th {
+            background-color: #3498db;
+            color: white;
+        }
+
+        tr:hover {
+            background-color: #f5f5f5;
+        }
+
+        .empty {
+            color: #999;
+            font-style: italic;
+        }
+
+        .error {
+            color: #e74c3c;
+            padding: 10px;
+            background: #fde2e2;
+            border-radius: 4px;
+            margin-top: 10px;
+        }
+
+        .success {
+            color: #27ae60;
+            padding: 10px;
+            background: #e3f8e9;
+            border-radius: 4px;
+            margin-top: 10px;
+        }
+
+        #file-info {
+            margin-top: 10px;
+            font-size: 14px;
+            color: #666;
+        }
+
+        .type-p {
+            background-color: #d4efff;
+        }
+
+        .color-swatch {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border-radius: 3px;
+            border: 1px solid #ddd;
+            vertical-align: middle;
+            margin-right: 8px;
+        }
+
+        .color-info {
+            display: flex;
+            align-items: center;
+        }
+
+        .image-cell {
+            text-align: center;
+        }
+
+        .image-cell img {
+            transition: transform 0.2s;
+        }
+
+        .image-cell img:hover {
+            transform: scale(1.5);
+        }
+    </style>
+</head>
+<body>
+<h1>Просмотрщик инвентаря XML</h1>
+
+<div id="upload-container">
+    <h2>Загрузите XML файл инвентаря</h2>
+    <input type="file" id="file-upload" accept=".xml" required />
+    <div id="file-info"></div>
+    <div id="status-message"></div>
+</div>
+
+<div id="preview-container">
+    <h2>Данные инвентаря</h2>
+    <div id="table-container"></div>
+    <div id="summary-container"></div>
+</div>
+
+<script>
+    const INVENTORY_COLUMNS = [
+        { id: 'ITEMTYPE', name: 'Тип' },
+        { id: 'ITEMID', name: 'ID' },
+        { id: 'COLOR', name: 'Цвет' },
+        { id: 'MINQTY', name: 'Мин. кол-во' },
+        { id: 'REMARKS', name: 'Примечания' },
+        { id: 'IMAGE', name: 'Изображение', virtual: true }
+    ];
+
+    let colorsData = {};
+    let itemTypesData = {};
+
+    document.addEventListener('DOMContentLoaded', function() {
+        Promise.all([loadColorsData(), loadItemTypesData()])
+            .then(() => {
+                showMessage('Данные о цветах и типах элементов успешно загружены', 'success');
+            })
+            .catch(error => {
+                showMessage(`Ошибка загрузки данных: ${error.message}`, 'error');
+            });
+
+        document.getElementById('file-upload').addEventListener('change', handleFileUpload);
+    });
+
+    async function loadColorsData() {
+        try {
+            const colorsContent = await fetch('bl_colors.txt').then(response => response.text());
+            parseColorsData(colorsContent);
+            console.log('Данные о цветах успешно загружены');
+            return true;
+        } catch (error) {
+            console.error('Ошибка загрузки данных о цветах:', error);
+            throw new Error(`Ошибка загрузки данных о цветах: ${error.message}`);
+        }
+    }
+
+    async function loadItemTypesData() {
+        try {
+            const typesContent = await fetch('bl_itemtypes.txt').then(response => response.text());
+            parseItemTypesData(typesContent);
+            console.log('Данные о типах элементов успешно загружены');
+            return true;
+        } catch (error) {
+            console.error('Ошибка загрузки данных о типах элементов:', error);
+            throw new Error(`Ошибка загрузки данных о типах элементов: ${error.message}`);
+        }
+    }
+
+    function parseColorsData(content) {
+        const lines = content.split('\n').filter(line => line.trim());
+
+        for (let i = 1; i < lines.length; i++) {
+            const line = lines[i].trim();
+            if (!line) continue;
+
+            const parts = line.split('\t');
+            if (parts.length < 3) continue;
+
+            const colorId = parts[0].trim();
+            const colorName = parts[1].trim();
+            const colorRgb = parts[2].trim();
+
+            colorsData[colorId] = {
+                name: colorName,
+                rgb: colorRgb
+            };
+        }
+
+        console.log('Загружено цветов:', Object.keys(colorsData).length);
+    }
+
+    function parseItemTypesData(content) {
+        const lines = content.split('\n').filter(line => line.trim());
+
+        for (let i = 1; i < lines.length; i++) {
+            const line = lines[i].trim();
+            if (!line) continue;
+
+            const parts = line.split('\t');
+            if (parts.length < 2) continue;
+
+            const typeId = parts[0].trim();
+            const typeName = parts[1].trim();
+
+            itemTypesData[typeId] = typeName;
+        }
+
+        console.log('Загружено типов элементов:', Object.keys(itemTypesData).length);
+    }
+
+    function handleFileUpload(event) {
+        const file = event.target.files[0];
+        if (!file) {
+            return;
+        }
+
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            const xmlContent = e.target.result;
+            processXml(xmlContent, file.name);
+        };
+
+        reader.onerror = function() {
+            showMessage('Ошибка при чтении файла', 'error');
+        };
+
+        reader.readAsText(file);
+        document.getElementById('file-info').textContent = `Файл: ${file.name} (${formatFileSize(file.size)})`;
+    }
+
+    function processXml(xmlContent, fileName) {
+        try {
+            const parser = new DOMParser();
+            const xmlDoc = parser.parseFromString(xmlContent, "text/xml");
+
+            const parseError = xmlDoc.getElementsByTagName('parsererror');
+            if (parseError.length > 0) {
+                throw new Error('Ошибка парсинга XML. Проверьте формат файла.');
+            }
+
+            const rootElement = xmlDoc.documentElement;
+            if (rootElement.tagName !== 'INVENTORY') {
+                throw new Error('Неверный формат XML. Ожидается корневой элемент INVENTORY.');
+            }
+
+            const itemElements = rootElement.getElementsByTagName('ITEM');
+
+            if (itemElements.length === 0) {
+                showMessage('В XML файле не найдены элементы ITEM', 'error');
+                return;
+            }
+
+            const data = [];
+            for (let i = 0; i < itemElements.length; i++) {
+                const item = itemElements[i];
+                const itemData = {};
+
+                INVENTORY_COLUMNS.forEach(column => {
+                    if (!column.virtual) {
+                        const element = item.getElementsByTagName(column.id)[0];
+                        itemData[column.id] = element ? element.textContent : '';
+                    }
+                });
+
+                data.push(itemData);
+            }
+
+            renderTable(data);
+            renderSummary(data);
+
+            showMessage(`Успешно загружен файл "${fileName}" с ${data.length} записями`, 'success');
+        } catch (error) {
+            showMessage(`Ошибка обработки XML: ${error.message}`, 'error');
+        }
+    }
+
+    function renderTable(data) {
+        const tableContainer = document.getElementById('table-container');
+
+        const table = document.createElement('table');
+
+        const thead = document.createElement('thead');
+        const headerRow = document.createElement('tr');
+
+        const indexHeader = document.createElement('th');
+        indexHeader.textContent = '#';
+        headerRow.appendChild(indexHeader);
+
+        INVENTORY_COLUMNS.forEach(column => {
+            const th = document.createElement('th');
+            th.textContent = column.name;
+            headerRow.appendChild(th);
+        });
+
+        thead.appendChild(headerRow);
+        table.appendChild(thead);
+
+        const tbody = document.createElement('tbody');
+
+        data.forEach((row, index) => {
+            const tr = document.createElement('tr');
+
+            const indexCell = document.createElement('td');
+            indexCell.textContent = index + 1;
+            tr.appendChild(indexCell);
+
+            INVENTORY_COLUMNS.forEach(column => {
+                const td = document.createElement('td');
+
+                if (column.virtual) {
+                    if (column.id === 'IMAGE') {
+                        createImageCell(td, row.ITEMTYPE, row.ITEMID, row.COLOR);
+                    }
+                } else {
+                    const value = row[column.id] || '';
+
+                    if (column.id === 'COLOR' && value) {
+                        createColorCell(td, value);
+                    } else {
+                        td.textContent = value;
+
+                        applySpecialFormatting(td, column.id, value);
+                    }
+
+                    if (!value) {
+                        td.classList.add('empty');
+                        td.textContent = '(пусто)';
+                    }
+                }
+
+                tr.appendChild(td);
+            });
+
+            tbody.appendChild(tr);
+        });
+
+        table.appendChild(tbody);
+
+        tableContainer.innerHTML = '';
+        tableContainer.appendChild(table);
+    }
+
+    function createColorCell(cell, colorId) {
+        cell.classList.add('color-info');
+
+        const colorInfo = colorsData[colorId];
+
+        if (colorInfo && colorInfo.rgb) {
+            cell.innerHTML = `
+                    <span class="color-swatch" style="background-color: #${colorInfo.rgb};"></span>
+                    ${colorId} - ${colorInfo.name}
+                `;
+
+            cell.title = `ID: ${colorId}, Название: ${colorInfo.name}, RGB: #${colorInfo.rgb}`;
+        } else {
+            cell.innerHTML = `
+                    <span class="color-swatch" style="background-color: #ccc;"></span>
+                    ${colorId} - Нет данных
+                `;
+            cell.title = `ID: ${colorId}, Данные о цвете не найдены`;
+        }
+    }
+
+    function createImageCell(cell, itemType, itemId, colorId) {
+        cell.classList.add('image-cell');
+
+        if (!itemType || !itemId) {
+            cell.textContent = 'Нет данных';
+            return;
+        }
+
+        let imageUrl = '';
+
+        switch (itemType) {
+            case 'P': // Деталь
+                imageUrl = `https://img.bricklink.com/ItemImage/PN/${colorId || '0'}/${itemId}.png`;
+                break;
+            case 'M': // Минифигурка
+                imageUrl = `https://img.bricklink.com/ItemImage/MN/0/${itemId}.png`;
+                break;
+            case 'S': // Набор
+                imageUrl = `https://img.bricklink.com/ItemImage/SN/0/${itemId}-1.png`;
+                break;
+            default:
+                imageUrl = `https://img.bricklink.com/ItemImage/XX/0/${itemId}.png`;
+        }
+
+        const img = document.createElement('img');
+        img.src = imageUrl;
+        img.alt = `${itemType} ${itemId}`;
+        img.title = `${itemType} ${itemId}${colorId ? ` (Цвет: ${colorId})` : ''}`;
+        img.style.maxWidth = '80px';
+        img.style.maxHeight = '80px';
+        img.style.display = 'block';
+        img.style.margin = '0 auto';
+
+        img.onerror = function() {
+            img.src = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI4MCIgaGVpZ2h0PSI4MCIgdmlld0JveD0iMCAwIDgwIDgwIj48cmVjdCB3aWR0aD0iODAiIGhlaWdodD0iODAiIGZpbGw9IiNmMGYwZjAiLz48dGV4dCB4PSI1MCUiIHk9IjUwJSIgZm9udC1zaXplPSIxMiIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZHk9Ii4zZW0iIGZpbGw9IiM5OTkiPkDQndC10YIg0LjQt9C+0LHRgNCw0LbQtdC90LjRjzwvdGV4dD48L3N2Zz4=';
+            img.title = 'Изображение не найдено';
+        };
+
+        cell.appendChild(img);
+
+        const link = document.createElement('a');
+        link.href = `https://www.bricklink.com/v2/catalog/catalogitem.page?${itemType}=${itemId}`;
+        link.target = '_blank';
+        link.textContent = 'Открыть на BrickLink';
+        link.style.display = 'block';
+        link.style.fontSize = '12px';
+        link.style.textAlign = 'center';
+        link.style.marginTop = '5px';
+
+        cell.appendChild(link);
+    }
+
+    function applySpecialFormatting(cell, columnId, value) {
+        switch (columnId) {
+            case 'ITEMTYPE':
+                if (itemTypesData[value]) {
+                    cell.textContent = itemTypesData[value];
+                    cell.title = `Код типа: ${value}`;
+                }
+
+                if (value === 'P') {
+                    cell.classList.add('type-p');
+                }
+                break;
+        }
+    }
+
+    function renderSummary(data) {
+        const summaryContainer = document.getElementById('summary-container');
+        summaryContainer.innerHTML = '';
+
+        if (data.length === 0) {
+            return;
+        }
+
+        const summary = document.createElement('div');
+        summary.style.marginTop = '20px';
+        summary.style.padding = '15px';
+        summary.style.backgroundColor = '#f8f9fa';
+        summary.style.borderRadius = '5px';
+        summary.style.border = '1px solid #dee2e6';
+
+        const countInfo = document.createElement('p');
+        countInfo.style.fontSize = '16px';
+        countInfo.style.fontWeight = 'bold';
+        countInfo.textContent = `Всего элементов: ${data.length}`;
+        summary.appendChild(countInfo);
+
+        summaryContainer.appendChild(summary);
+    }
+
+    function showMessage(message, type) {
+        const statusElement = document.getElementById('status-message');
+        statusElement.textContent = message;
+        statusElement.className = type;
+    }
+
+    function formatFileSize(bytes) {
+        if (bytes < 1024) {
+            return bytes + ' байт';
+        } else if (bytes < 1024 * 1024) {
+            return (bytes / 1024).toFixed(2) + ' КБ';
+        } else {
+            return (bytes / (1024 * 1024)).toFixed(2) + ' МБ';
+        }
+    }
+</script>
+</body>
+</html>
